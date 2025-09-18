@@ -25,6 +25,8 @@ docker-deploy:
   stage: deploy
   image: alpine:3.20
   needs: ["build_and_push"]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"     # main branch only
   before_script:
     - apk add --no-cache openssh-client bash coreutils
     - mkdir -p ~/.ssh
@@ -32,28 +34,31 @@ docker-deploy:
     - chmod 700 ~/.ssh && chmod 600 ~/.ssh/id_rsa
     - ssh-keyscan -p "${SSH_PORT:-22}" "$SSH_HOST" >> ~/.ssh/known_hosts
   script: |
+    set -euo pipefail
     IMG="$CI_REGISTRY_IMAGE:latest"
-    PUB="${PUBLISH_PORT:-8081}"
-    DEP="${DEPLOY_DIR:-apps/mini-qr}"  # 홈 기준 상대경로
+    NAME="mini-qr"
+    HOST_PORT="${PUBLISH_PORT:-8081}"
+    CONTAINER_PORT="8080"
 
-    ssh -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" "
-      set -e
-      mkdir -p ~/'$DEP'
+    ssh -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" "bash -s" <<EOF
+    set -euo pipefail
+    set -x
+    
+    # 레지스트리 로그인 & 최신 이미지 풀
+    echo '$CI_REGISTRY_PASSWORD' | docker login -u '$CI_REGISTRY_USER' '$CI_REGISTRY' --password-stdin
+    docker pull "$IMG"
+    
+    # 기존 컨테이너 정리(있으면)
+    if docker ps -a --format '{{.Names}}' | grep -qx '$NAME'; then
+    docker rm -f '$NAME' || true
+    fi
+    
+    # 새 컨테이너 실행 (필요하면 ENV 붙여도 됨: -e KEY=VALUE)
+    docker run -d --name '$NAME' -p "$HOST_PORT:$CONTAINER_PORT" \
+    --restart unless-stopped \
+    "$IMG"
 
-      cat > ~/'$DEP'/docker-compose.yml <<EOF
-      services:
-        miniqr:
-          image: \"$IMG\"
-          container_name: miniqr
-          ports:
-            - '$PUB:80'
-          restart: unless-stopped
-      EOF
-
-      docker login -u '$CI_REGISTRY_USER' -p '$CI_REGISTRY_PASSWORD' '$CI_REGISTRY'
-      docker compose -f ~/'$DEP'/docker-compose.yml pull
-      docker compose -f ~/'$DEP'/docker-compose.yml up -d
-      docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | sed -n '1,5p'
-    "
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
+  # 상태/로그 간단 확인
+    docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' | sed -n '1,5p'
+    docker logs --tail=50 '$NAME' || true
+    EOF
