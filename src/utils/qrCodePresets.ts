@@ -1,4 +1,4 @@
-import PLACEHOLDER_IMAGE_URL from '@/assets/placeholder_image.png'
+// import PLACEHOLDER_IMAGE_URL from '@/assets/placeholder_image.png'
 import GeeksHackingConfig from '@/assets/presets/geekshacking.json'
 import SpDigitalConfig from '@/assets/presets/spdigital.json'
 import GovtechStackCommunityConfig from '@/assets/presets/govtech_stack.json'
