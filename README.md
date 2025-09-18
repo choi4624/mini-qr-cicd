@@ -15,6 +15,28 @@ An app to create beautiful QR codes and scan various QR code types.
     <a href="https://viteconf.org/"><img width="100" src="public/presets/viteconf2023.svg" /></a>
 </div>
 
+## About this fork
+
+This is personal gitlab CI/CD process included version
+
+Change default setting `src/assets/presets/i4624.json`
+
+If using this fork fill the variables this
+
+- DEPLOY_DIR
+- PUBLISH_PORT 
+- SSH_HOST 
+- SSH_KEY_B64 
+  - Required Base64 encode value due to whitespace limited 
+- SSH_PORT 
+- SSH_USER
+
+> view `.gitlab-ci.yml` why this variable is required
+
+This require 1 DinD(Docker in Docker) runner and 1 ssh machine(VM, CT, etc...)
+
+View site: <https://qr.i4624.info>
+
 ## Features
 
 > [Review of 'MiniQR' that makes it easy to create good-looking QR codes](https://gigazine.net/gsc_news/en/20241104-qr-code-generator-miniqr/) - Gigazine, an Osaka based tech news website, one of the top 25 news sites by TIME.com
