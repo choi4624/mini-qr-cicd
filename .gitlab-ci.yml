@@ -20,13 +20,13 @@ build_and_push:
     - docker push "$CI_REGISTRY_IMAGE:latest"
 
 # 2) Deploy (SSH만 사용, DinD 불필요)
-## main branch only
+# main branch only
 docker-deploy:
   stage: deploy
   image: alpine:3.20
   needs: ["build_and_push"]
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"     # main branch only
+    - if: $CI_COMMIT_BRANCH == "main"
   before_script:
     - apk add --no-cache openssh-client bash coreutils
     - mkdir -p ~/.ssh
