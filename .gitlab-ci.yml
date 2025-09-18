@@ -20,6 +20,7 @@ build_and_push:
     - docker push "$CI_REGISTRY_IMAGE:latest"
 
 # 2) Deploy (SSH만 사용, DinD 불필요)
+## main branch only
 docker-deploy:
   stage: deploy
   image: alpine:3.20
