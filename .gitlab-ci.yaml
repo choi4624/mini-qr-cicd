@@ -2,7 +2,7 @@ stages: [docker-image-build, push, deploy]
 
 docker-image-build:
   stage: docker-image-build
-  tags: [shell]
+  tags: [docker]
   variables:
     IMAGE_NAME: "$CI_REGISTRY_IMAGE/mini-qr"
     TAG: "$CI_COMMIT_SHORT_SHA"
@@ -21,7 +21,7 @@ docker-image-build:
 
 docker-push:
   stage: push
-  tags: [shell]
+  tags: [docker]
   variables:
     IMAGE_NAME: "$CI_REGISTRY_IMAGE/mini-qr"
     TAG: "$CI_COMMIT_SHORT_SHA"
@@ -33,7 +33,7 @@ docker-push:
 
 docker-deploy:
   stage: deploy
-  tags: [shell]
+  tags: [docker]
   needs: ["docker-push"]
   variables:
     IMAGE_NAME: "$CI_REGISTRY_IMAGE/mini-qr"
