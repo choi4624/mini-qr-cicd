@@ -1,6 +1,6 @@
 stages: [build_and_push, deploy]
 
-# 1) Build image (DinD) + Push (DinD)
+# 1) Build & Push (Docker executor + DinD)
 build_and_push:
   stage: build_and_push
   image: docker:26.1.3
@@ -14,51 +14,49 @@ build_and_push:
     - docker version
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" "$CI_REGISTRY" --password-stdin
   script:
-    # CI_REGISTRY_IMAGE 는 현재 프로젝트의 레지스트리 네임스페이스 (예: registry.i4624.info/webapp/mini-qr-cicd)
-    - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" -t "$CI_REGISTRY_IMAGE:latest" .
-    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
-    - docker push "$CI_REGISTRY_IMAGE:latest"
+    - |
+      set -euo pipefail
+      docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" -t "$CI_REGISTRY_IMAGE:latest" .
+      docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+      docker push "$CI_REGISTRY_IMAGE:latest"
 
-# 2) Deploy (SSH만 사용, DinD 불필요)
-# main branch only
+# 2) Deploy (SSH + docker run)
 docker-deploy:
   stage: deploy
   image: alpine:3.20
   needs: ["build_and_push"]
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
+    - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
-    - apk add --no-cache openssh-client bash coreutils
+    - apk add --no-cache openssh-client bash coreutils curl
     - mkdir -p ~/.ssh
     - echo "$SSH_KEY_B64" | base64 -d > ~/.ssh/id_rsa || echo "$SSH_KEY_B64" | base64 --decode > ~/.ssh/id_rsa
     - chmod 700 ~/.ssh && chmod 600 ~/.ssh/id_rsa
     - ssh-keyscan -p "${SSH_PORT:-22}" "$SSH_HOST" >> ~/.ssh/known_hosts
-  script: |
-    set -euo pipefail
-    IMG="$CI_REGISTRY_IMAGE:latest"
-    NAME="mini-qr"
-    HOST_PORT="${PUBLISH_PORT:-8081}"
-    CONTAINER_PORT="8080"
+  script:
+    - |
+      set -euo pipefail
+      IMG="$CI_REGISTRY_IMAGE:latest"
+      NAME="mini-qr"
+      HOST_PORT="${PUBLISH_PORT:-8081}"
+      CONTAINER_PORT="8080"
 
-    ssh -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" "bash -s" <<EOF
-    set -euo pipefail
-    set -x
-    
-    # 레지스트리 로그인 & 최신 이미지 풀
-    echo '$CI_REGISTRY_PASSWORD' | docker login -u '$CI_REGISTRY_USER' '$CI_REGISTRY' --password-stdin
-    docker pull "$IMG"
-    
-    # 기존 컨테이너 정리(있으면)
-    if docker ps -a --format '{{.Names}}' | grep -qx '$NAME'; then
-    docker rm -f '$NAME' || true
-    fi
-    
-    # 새 컨테이너 실행 (필요하면 ENV 붙여도 됨: -e KEY=VALUE)
-    docker run -d --name '$NAME' -p "$HOST_PORT:$CONTAINER_PORT" \
-    --restart unless-stopped \
-    "$IMG"
+      # heredoc은 맨 왼쪽 열에 EOF를 둡니다(※ 들여쓰기 금지)
+      ssh -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" bash -s <<EOF
+  set -euo pipefail
+  set -x
+  
+  echo '$CI_REGISTRY_PASSWORD' | docker login -u '$CI_REGISTRY_USER' '$CI_REGISTRY' --password-stdin
+  docker pull "$IMG"
+  
+  if docker ps -a --format '{{.Names}}' | grep -qx "$NAME"; then
+  docker rm -f "$NAME" || true
+  fi
+  
+  docker run -d --name "$NAME" -p "$HOST_PORT:$CONTAINER_PORT" \
+  --restart unless-stopped \
+  "$IMG"
 
-  # 상태/로그 간단 확인
-    docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' | sed -n '1,5p'
-    docker logs --tail=50 '$NAME' || true
-    EOF
+  docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' | sed -n '1,10p'
+  docker logs --tail=80 "$NAME" || true
+  EOF
