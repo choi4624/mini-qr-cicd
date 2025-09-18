@@ -1,0 +1,91 @@
+stages:
+  - build
+  - docker-image-build
+  - push
+  - deploy
+
+# ─────────────────────────────────────────────────────────────
+# 1) (선택) 프런트 정적 빌드가 필요 없다면 이 job은 생략해도 됨.
+#    보통은 Dockerfile의 build stage에서 빌드하므로 생략 권장.
+#    남겨두려면 러너 호스트에 node/npm이 설치돼 있어야 합니다.
+# ─────────────────────────────────────────────────────────────
+frontend-build:
+  stage: build
+  tags: [shell]              # 러너가 특정 태그를 요구하면 맞춰주세요
+  script:
+    - node -v || true        # node 미설치면 여기서 실패할 수 있음 (생략 가능)
+    - npm -v || true
+    - echo "Skip: Dockerfile에서 빌드할 예정이라 별도 프런트 빌드는 생략합니다."
+
+# ─────────────────────────────────────────────────────────────
+# 2) Docker 이미지 빌드 (Shell 러너의 로컬 docker 사용)
+#    Dockerfile에 node build → nginx 정적서빙 형태의 멀티스테이지를 가정
+# ─────────────────────────────────────────────────────────────
+docker-image-build:
+  stage: docker-image-build
+  tags: [shell]
+  variables:
+    IMAGE_NAME: "$CI_REGISTRY_IMAGE/mini-qr"
+    TAG: "$CI_COMMIT_SHORT_SHA"
+  before_script:
+    - docker version
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" "$CI_REGISTRY" --password-stdin
+  script:
+    - docker build -t "$IMAGE_NAME:$TAG" -t "$IMAGE_NAME:latest" .
+    - docker images | head -n 10
+
+# ─────────────────────────────────────────────────────────────
+# 3) 푸시
+# ─────────────────────────────────────────────────────────────
+docker-push:
+  stage: push
+  tags: [shell]
+  variables:
+    IMAGE_NAME: "$CI_REGISTRY_IMAGE/mini-qr"
+    TAG: "$CI_COMMIT_SHORT_SHA"
+  before_script:
+    - docker version
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" "$CI_REGISTRY" --password-stdin
+  script:
+    - docker push "$IMAGE_NAME:$TAG"
+    - docker push "$IMAGE_NAME:latest"
+
+# ─────────────────────────────────────────────────────────────
+# 4) 배포(SSH로 원격 CT에 compose 파일 작성 → pull/up -d)
+#    서버(CT)에는 docker/compose-plugin이 설치돼 있어야 합니다.
+#    필요 변수: SSH_HOST, SSH_PORT(옵션), SSH_USER, SSH_KEY, DEPLOY_DIR(옵션), PUBLISH_PORT(옵션)
+# ─────────────────────────────────────────────────────────────
+docker-deploy:
+  stage: deploy
+  tags: [shell]
+  needs: ["docker-push"]
+  variables:
+    IMAGE_NAME: "$CI_REGISTRY_IMAGE/mini-qr"
+  before_script:
+    - which ssh || (sudo apt-get update && sudo apt-get install -y openssh-client)
+    - mkdir -p ~/.ssh
+    - echo "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - ssh-keyscan -p "${SSH_PORT:-22}" "$SSH_HOST" >> ~/.ssh/known_hosts
+  script: |
+    ssh -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" "
+      set -e
+      sudo mkdir -p '${DEPLOY_DIR:-/opt/mini-qr}'
+      sudo chown -R \$(id -u):\$(id -g) '${DEPLOY_DIR:-/opt/mini-qr}'
+      cat > '${DEPLOY_DIR:-/opt/mini-qr}/docker-compose.yml' <<'EOF'
+      services:
+        miniqr:
+          image: ${IMAGE_NAME}:latest
+          container_name: miniqr
+          ports:
+            - '${PUBLISH_PORT:-8081}:80'    # 컨테이너 80(nginx) → 호스트 8081
+          restart: unless-stopped
+      EOF
+
+      echo '$CI_REGISTRY_PASSWORD' | docker login -u '$CI_REGISTRY_USER' '$CI_REGISTRY' --password-stdin
+      docker compose -f '${DEPLOY_DIR:-/opt/mini-qr}/docker-compose.yml' pull
+      docker compose -f '${DEPLOY_DIR:-/opt/mini-qr}/docker-compose.yml' up -d
+      docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | sed -n '1,5p'
+    "
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
