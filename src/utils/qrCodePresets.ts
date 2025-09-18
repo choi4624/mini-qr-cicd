@@ -1,9 +1,10 @@
-import PLACEHOLDER_IMAGE_URL from '@/assets/placeholder_image.png'
+// import PLACEHOLDER_IMAGE_URL from '@/assets/placeholder_image.png'
 import GeeksHackingConfig from '@/assets/presets/geekshacking.json'
 import SpDigitalConfig from '@/assets/presets/spdigital.json'
 import GovtechStackCommunityConfig from '@/assets/presets/govtech_stack.json'
 import Hackomania2025Config from '@/assets/presets/hackomania2025.json'
 import PlainConfig from '@/assets/presets/plain.json'
+import i4624Config from '@/assets/presets/i4624.json'
 import type { DrawType, Options as StyledQRCodeProps } from 'qr-code-styling'
 
 export interface CustomStyleProps {
@@ -244,28 +245,13 @@ export const vueJsPreset: Preset = {
 
 // Individual presets
 
-export const lyqhtPreset: Preset = {
+export const lyqhtPreset = {
   ...defaultPresetOptions,
-  name: 'Default (lyqht)',
-  data: 'https://github.com/lyqht',
-  image: PLACEHOLDER_IMAGE_URL,
-  dotsOptions: {
-    color: '#abcbca',
-    type: 'extra-rounded'
-  },
-  cornersSquareOptions: {
-    color: '#abcbca',
-    type: 'extra-rounded'
-  },
-  cornersDotOptions: {
-    color: '#abcbca',
-    type: 'square'
-  },
-  style: {
-    borderRadius: '24px',
-    background: '#697d80'
-  }
-}
+  name: 'i4624',
+  ...i4624Config.props,
+  style: i4624Config.style
+} as Preset
+
 export const pejuangKodePreset: Preset = {
   ...defaultPresetOptions,
   name: 'Pejuang Kode',
