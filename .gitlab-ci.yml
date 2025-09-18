@@ -3,21 +3,11 @@ stages: [docker-image-build, push, deploy]
 docker-image-build:
   stage: docker-image-build
   tags: [docker]
-  variables:
-    IMAGE_NAME: "$CI_REGISTRY_IMAGE/mini-qr"
-    TAG: "$CI_COMMIT_SHORT_SHA"
   before_script:
+    - docker version
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" "$CI_REGISTRY" --password-stdin
   script:
-    - |
-      docker build \
-        --build-arg BASE_PATH="/" \
-        --build-arg VITE_HIDE_CREDITS=true \
-        --build-arg VITE_DEFAULT_PRESET="i4624" \
-        --build-arg VITE_DEFAULT_DATA_TO_ENCODE="https://i4624.info" \
-        --build-arg VITE_QR_CODE_PRESETS='[{"name":"i4624","ecc":"M","margin":16,"color":"#000"}]' \
-        -t "$IMAGE_NAME:$TAG" -t "$IMAGE_NAME:latest" .
-    - docker images | head -n 10
+    - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" -t "$CI_REGISTRY_IMAGE:latest" .
 
 docker-push:
   stage: push
