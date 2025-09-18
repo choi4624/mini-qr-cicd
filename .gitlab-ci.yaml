@@ -1,26 +1,5 @@
-stages:
-  - build
-  - docker-image-build
-  - push
-  - deploy
+stages: [docker-image-build, push, deploy]
 
-# ─────────────────────────────────────────────────────────────
-# 1) (선택) 프런트 정적 빌드가 필요 없다면 이 job은 생략해도 됨.
-#    보통은 Dockerfile의 build stage에서 빌드하므로 생략 권장.
-#    남겨두려면 러너 호스트에 node/npm이 설치돼 있어야 합니다.
-# ─────────────────────────────────────────────────────────────
-frontend-build:
-  stage: build
-  tags: [shell]              # 러너가 특정 태그를 요구하면 맞춰주세요
-  script:
-    - node -v || true        # node 미설치면 여기서 실패할 수 있음 (생략 가능)
-    - npm -v || true
-    - echo "Skip: Dockerfile에서 빌드할 예정이라 별도 프런트 빌드는 생략합니다."
-
-# ─────────────────────────────────────────────────────────────
-# 2) Docker 이미지 빌드 (Shell 러너의 로컬 docker 사용)
-#    Dockerfile에 node build → nginx 정적서빙 형태의 멀티스테이지를 가정
-# ─────────────────────────────────────────────────────────────
 docker-image-build:
   stage: docker-image-build
   tags: [shell]
@@ -28,15 +7,18 @@ docker-image-build:
     IMAGE_NAME: "$CI_REGISTRY_IMAGE/mini-qr"
     TAG: "$CI_COMMIT_SHORT_SHA"
   before_script:
-    - docker version
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" "$CI_REGISTRY" --password-stdin
   script:
-    - docker build -t "$IMAGE_NAME:$TAG" -t "$IMAGE_NAME:latest" .
+    - |
+      docker build \
+        --build-arg BASE_PATH="/" \
+        --build-arg VITE_HIDE_CREDITS=true \
+        --build-arg VITE_DEFAULT_PRESET="i4624" \
+        --build-arg VITE_DEFAULT_DATA_TO_ENCODE="https://i4624.info" \
+        --build-arg VITE_QR_CODE_PRESETS='[{"name":"i4624","ecc":"M","margin":16,"color":"#000"}]' \
+        -t "$IMAGE_NAME:$TAG" -t "$IMAGE_NAME:latest" .
     - docker images | head -n 10
 
-# ─────────────────────────────────────────────────────────────
-# 3) 푸시
-# ─────────────────────────────────────────────────────────────
 docker-push:
   stage: push
   tags: [shell]
@@ -44,17 +26,11 @@ docker-push:
     IMAGE_NAME: "$CI_REGISTRY_IMAGE/mini-qr"
     TAG: "$CI_COMMIT_SHORT_SHA"
   before_script:
-    - docker version
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" "$CI_REGISTRY" --password-stdin
   script:
     - docker push "$IMAGE_NAME:$TAG"
     - docker push "$IMAGE_NAME:latest"
 
-# ─────────────────────────────────────────────────────────────
-# 4) 배포(SSH로 원격 CT에 compose 파일 작성 → pull/up -d)
-#    서버(CT)에는 docker/compose-plugin이 설치돼 있어야 합니다.
-#    필요 변수: SSH_HOST, SSH_PORT(옵션), SSH_USER, SSH_KEY, DEPLOY_DIR(옵션), PUBLISH_PORT(옵션)
-# ─────────────────────────────────────────────────────────────
 docker-deploy:
   stage: deploy
   tags: [shell]
@@ -64,8 +40,11 @@ docker-deploy:
   before_script:
     - which ssh || (sudo apt-get update && sudo apt-get install -y openssh-client)
     - mkdir -p ~/.ssh
-    - echo "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+    # 🔽 Base64로 저장된 SSH_KEY_B64를 파일로 복구 (리눅스/알파인/우분투 호환)
+    - echo "$SSH_KEY_B64" | base64 -d > ~/.ssh/id_rsa || echo "$SSH_KEY_B64" | base64 --decode > ~/.ssh/id_rsa
+    - chmod 700 ~/.ssh
     - chmod 600 ~/.ssh/id_rsa
+    # known_hosts 등록 (호스트키 프롬프트 방지)
     - ssh-keyscan -p "${SSH_PORT:-22}" "$SSH_HOST" >> ~/.ssh/known_hosts
   script: |
     ssh -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" "
@@ -78,10 +57,9 @@ docker-deploy:
           image: ${IMAGE_NAME}:latest
           container_name: miniqr
           ports:
-            - '${PUBLISH_PORT:-8081}:80'    # 컨테이너 80(nginx) → 호스트 8081
+            - '${PUBLISH_PORT:-8081}:80'
           restart: unless-stopped
       EOF
-
       echo '$CI_REGISTRY_PASSWORD' | docker login -u '$CI_REGISTRY_USER' '$CI_REGISTRY' --password-stdin
       docker compose -f '${DEPLOY_DIR:-/opt/mini-qr}/docker-compose.yml' pull
       docker compose -f '${DEPLOY_DIR:-/opt/mini-qr}/docker-compose.yml' up -d
