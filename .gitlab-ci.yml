@@ -34,14 +34,13 @@ docker-deploy:
   script: |
     IMG="$CI_REGISTRY_IMAGE:latest"
     PUB="${PUBLISH_PORT:-8081}"
-    DEP="${DEPLOY_DIR:-/opt/mini-qr}"
+    DEP="${DEPLOY_DIR:-apps/mini-qr}"  # 홈 기준 상대경로
 
     ssh -p "${SSH_PORT:-22}" "$SSH_USER@$SSH_HOST" "
       set -e
-      sudo mkdir -p '$DEP'
-      sudo chown -R \$(id -u):\$(id -g) '$DEP'
+      mkdir -p ~/'$DEP'
 
-      cat > '$DEP/docker-compose.yml' <<EOF
+      cat > ~/'$DEP'/docker-compose.yml <<EOF
       services:
         miniqr:
           image: \"$IMG\"
@@ -51,9 +50,9 @@ docker-deploy:
           restart: unless-stopped
       EOF
 
-      echo '$CI_REGISTRY_PASSWORD' | docker login -u '$CI_REGISTRY_USER' '$CI_REGISTRY' --password-stdin
-      docker compose -f '$DEP/docker-compose.yml' pull
-      docker compose -f '$DEP/docker-compose.yml' up -d
+      docker login -u '$CI_REGISTRY_USER' -p '$CI_REGISTRY_PASSWORD' '$CI_REGISTRY'
+      docker compose -f ~/'$DEP'/docker-compose.yml pull
+      docker compose -f ~/'$DEP'/docker-compose.yml up -d
       docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | sed -n '1,5p'
     "
   rules:
